@@ -154,6 +154,7 @@ const storeCombination = (
     priority: 'read',
   })
   softReader.data.softRead = true
+  let canReadInitialValue = true
   const node = [
     calc((upd, _, stack) => {
       if (stack.scope && !stack.scope.reg[rawShape.id]) {
@@ -188,6 +189,13 @@ const storeCombination = (
      *  basically, this makes `sample` and `combine` priorities equal
      */
     read(rawShape, true, true),
+    fn &&
+      calc((upd, _, stack) => {
+        if (!stack.scope) {
+          canReadInitialValue = false
+        }
+        return upd
+      }),
     fn && userFnCall(),
     softReader,
   ]
@@ -209,6 +217,7 @@ const storeCombination = (
     addRefOp(rawShape, {type: 'field', field: key, from: childRef})
     applyTemplate('combineField', childRef, linkNode)
   })
+  const initialShape = clone(stateNew)
 
   store.defaultShape = obj
   setMeta(store, 'defaultShape', obj)
@@ -219,15 +228,55 @@ const storeCombination = (
   })
   if (!readTemplate()) {
     if (fn) {
-      const computedValue = fn(stateNew)
+      let hasCurrentValue = false
+      let hasInitialValue = false
+      let currentValue: unknown = storeStateRef.current
+      let initialValue: unknown
 
-      if (isVoid(computedValue) && (!extConfig || !('skipVoid' in extConfig))) {
-        console.error(`${errorTitle}: ${requireExplicitSkipVoidMessage}`)
+      const setInitialValue = (value: unknown) => {
+        initialValue = value
+        hasInitialValue = true
+        store.graphite.meta.defaultState = value
       }
 
-      storeStateRef.current = computedValue
-      storeStateRef.initial = computedValue
-      store.defaultState = computedValue
+      const readInitialValue = () => {
+        if (!hasInitialValue) {
+          const computedValue = fn(initialShape)
+          if (isVoid(computedValue) && (!extConfig || !('skipVoid' in extConfig))) {
+            console.error(`${errorTitle}: ${requireExplicitSkipVoidMessage}`)
+          }
+          setInitialValue(computedValue)
+        }
+        return initialValue
+      }
+
+      Object.defineProperty(storeStateRef, 'current', {
+        configurable: true,
+        enumerable: true,
+        get() {
+          if (!hasCurrentValue) {
+            if (canReadInitialValue) {
+              currentValue = readInitialValue()
+              hasCurrentValue = true
+            }
+          }
+          return currentValue
+        },
+        set(value: unknown) {
+          currentValue = value
+          hasCurrentValue = true
+        },
+      })
+      Object.defineProperty(store, 'defaultState', {
+        configurable: true,
+        enumerable: true,
+        get() {
+          return readInitialValue()
+        },
+        set(value: unknown) {
+          setInitialValue(value)
+        },
+      })
     } else {
       store.defaultState = defaultState
     }

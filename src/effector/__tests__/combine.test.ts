@@ -150,6 +150,68 @@ it('deduplicate outputs', async () => {
   `)
 })
 
+it('does not call transform function during combine initialization', () => {
+  const fn = jest.fn()
+  const $a = createStore(0)
+  combine($a, fn)
+  expect(fn).not.toHaveBeenCalled()
+})
+
+it('does not call throwing fn during combine initialization', () => {
+  const $a = createStore(1)
+  expect(() => {
+    combine($a, () => {
+      throw new Error('combine fn failed')
+    })
+  }).not.toThrow()
+})
+
+it('sample uses computed combine value as source', () => {
+  const $a = createStore(1)
+  const $b = createStore(2)
+  const $combined = combine($a, $b, (a, b) => a + b)
+  const $sampled = sample({source: $combined})
+
+  expect($sampled.getState()).toBe(3)
+})
+
+it('sample uses computed combine value with clock fn', () => {
+  const $a = createStore(1)
+  const $b = createStore(2)
+  const $clock = createStore(10)
+  const $combined = combine($a, $b, (a, b) => a + b)
+  const $sampled = sample({
+    source: $combined,
+    clock: $clock,
+    fn: (src, clock) => src + clock,
+  })
+
+  expect($sampled.getState()).toBe(13)
+})
+
+it('nested combine keeps computed child defaultState', () => {
+  const $a = createStore(1)
+  const $b = createStore(2)
+  const $c1 = combine($a, $b, (a, b) => a + b)
+  const $c2 = combine({c1: $c1})
+
+  expect($c1.defaultState).toBe(3)
+  expect($c2.defaultState).toEqual({c1: 3})
+  expect($c2.getState()).toEqual({c1: 3})
+})
+
+it('combine preserves initial defaultState after updates before first read', () => {
+  const setA = createEvent<number>()
+  const $a = createStore(1).on(setA, (_, value) => value)
+  const $b = createStore(2)
+  const $combined = combine($a, $b, (a, b) => a + b)
+
+  setA(5)
+
+  expect($combined.defaultState).toBe(3)
+  expect($combined.getState()).toBe(7)
+})
+
 it('skip first duplicated update', () => {
   const fn = jest.fn()
   const changedToken = createEvent<string>()
@@ -292,11 +354,6 @@ it('doesn`t leak internal variables to transform function', () => {
     Array [
       Array [
         Object {
-          "a": 0,
-        },
-      ],
-      Array [
-        Object {
           "a": 1,
         },
       ],
@@ -411,7 +468,7 @@ describe('fn retriggers', () => {
 
     const scope = fork({values: [[$a, 10]]})
     await allSettled(inc, {scope})
-    expect(argumentHistory(fn)).toEqual([0, 11])
+    expect(argumentHistory(fn)).toEqual([11])
   })
   test('dont retrigger combine fn on getState calls', () => {
     const fn = jest.fn()
@@ -423,7 +480,7 @@ describe('fn retriggers', () => {
 
     const scope = fork({values: [[$a, 10]]})
     scope.getState($comb)
-    expect(argumentHistory(fn)).toEqual([0, 10])
+    expect(argumentHistory(fn)).toEqual([10])
   })
   test('dont retrigger combine fn on getState + allSettled calls', async () => {
     const fn = jest.fn()
@@ -437,7 +494,7 @@ describe('fn retriggers', () => {
     const scope = fork({values: [[$a, 10]]})
     scope.getState($comb)
     await allSettled(inc, {scope})
-    expect(argumentHistory(fn)).toEqual([0, 10, 11])
+    expect(argumentHistory(fn)).toEqual([10, 11])
   })
 })
 

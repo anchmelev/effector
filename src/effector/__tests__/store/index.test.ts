@@ -498,8 +498,10 @@ describe('void skip pattern deprecation', () => {
   })
 
   describe('combine', () => {
-    test('combine warns on initial undefined', () => {
+    test('combine warns on undefined on first evaluation', () => {
       const $foo = combine({a: createStore(null)}, () => {})
+      expect(getWarning()).toBe('')
+      $foo.getState()
 
       expect(getWarning()).toMatchInlineSnapshot(
         `"[combine] unit '$foo': undefined is used to skip updates. To allow undefined as a value provide explicit { skipVoid: false } option"`,
